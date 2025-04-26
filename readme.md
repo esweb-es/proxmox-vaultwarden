@@ -32,7 +32,7 @@ Características:
 Ejecuta el siguiente comando desde la **shell del nodo Proxmox**:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/esweb-es/proxmox-bitwarden/main/proxmox-bitwarden)
+bash <(curl -s https://github.com/esweb-es/proxmox-vaultwarden/blob/main/proxmox-vaultwarden.sh)
 ```
 
 Este script:
