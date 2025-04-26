@@ -7,16 +7,20 @@
 # Preguntar por el ID del contenedor LXC
 read -p "Ingresa el ID del contenedor LXC en Proxmox (ej. 101): " LXC_ID
 
-# Preguntar por la plantilla LXC a usar (por ejemplo, Debian 11)
-read -p "Ingresa la plantilla LXC a usar (ej. debian-11-standard_11.0-1_amd64.tar.gz): " LXC_TEMPLATE
+# Descarga la plantilla más reciente de Debian (sin necesidad de preguntar)
+echo "Descargando la plantilla más reciente de Debian..."
+pveam update
+LATEST_TEMPLATE=$(pveam available | grep debian | sort | tail -n 1 | awk '{print $1}')
+
+echo "Plantilla seleccionada: $LATEST_TEMPLATE"
 
 # Preguntar por la contraseña del contenedor LXC
 read -sp "Ingresa la contraseña para el contenedor LXC: " LXC_PASSWORD
 echo
 
 # Crear el contenedor LXC en Proxmox
-echo "Creando contenedor LXC en Proxmox con ID $LXC_ID usando la plantilla $LXC_TEMPLATE..."
-pct create $LXC_ID /var/lib/vz/template/cache/$LXC_TEMPLATE --hostname vaultwarden --memory 1024 --cores 2 --rootfs local-lvm:8 --net0 name=eth0,bridge=vmbr0,ip=dhcp,tag=100 --password $LXC_PASSWORD
+echo "Creando contenedor LXC en Proxmox con ID $LXC_ID usando la plantilla $LATEST_TEMPLATE..."
+pct create $LXC_ID local:vztmpl/$LATEST_TEMPLATE --hostname vaultwarden --memory 1024 --cores 2 --rootfs local-lvm:8 --net0 name=eth0,bridge=vmbr0,ip=dhcp,tag=100 --password $LXC_PASSWORD
 
 # Iniciar el contenedor LXC
 echo "Iniciando el contenedor LXC..."
