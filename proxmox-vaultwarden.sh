@@ -18,7 +18,7 @@ msg_ok() { echo -e "✅ $1"; }
 # CONFIGURACIÓN INICIAL
 # ========================
 APP="Vaultwarden"
-var_tags="docker bitwarden vaultwarden"
+var_tags="docker vaultwarden"
 var_cpu="1"
 var_ram="512"
 var_disk="2"
@@ -69,7 +69,7 @@ echo "📦 Creando contenedor LXC ID #$CTID..."
 
 pct create $CTID ${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE} \
   -rootfs ${ROOTFS_STORAGE}:${var_disk} \
-  -hostname VaultWarden \
+  -hostname vaultwarden \
   -memory ${var_ram} \
   -cores ${var_cpu} \
   -net0 name=eth0,bridge=vmbr0,ip=dhcp \
