@@ -1,79 +1,124 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# ================================
-# Script para crear un contenedor LXC en Proxmox y desplegar Vaultwarden en Docker
-# ================================
+# ========================
+# FUNCIONES LOCALES
+# ========================
+header_info() { echo -e "\n🧠 $1\n"; }
+variables() { :; }
+color() { :; }
+catch_errors() { :; }
+msg_ok() { echo -e "✅ $1"; }
 
-# Preguntar por el ID del contenedor LXC
-read -p "Ingresa el ID del contenedor LXC en Proxmox (ej. 101): " LXC_ID
+# ========================
+# CONFIGURACIÓN INICIAL
+# ========================
+APP="Vaultwarden (Bitwarden Self-Host)"
+var_tags="docker vaultwarden bitwarden"
+var_cpu="1"
+var_ram="1024"
+var_disk="8"
+var_os="debian"
+var_version="12"
+var_unprivileged="1"
 
-# Descarga la plantilla más reciente de Debian (sin necesidad de preguntar)
-echo "Descargando la plantilla más reciente de Debian..."
-pveam update
-LATEST_TEMPLATE=$(pveam available | grep debian | sort | tail -n 1 | awk '{print $1}')
+header_info "$APP"
+variables
+color
+catch_errors
 
-echo "Plantilla seleccionada: $LATEST_TEMPLATE"
+# ========================
+# PREGUNTAS INTERACTIVAS
+# ========================
+read -rp "❓ ¿Quieres instalar Vaultwarden en Docker? [s/n]: " INSTALL_VAULTWARDEN
+INSTALL_VAULTWARDEN=${INSTALL_VAULTWARDEN,,}
 
-# Preguntar por la contraseña del contenedor LXC
-read -sp "Ingresa la contraseña para el contenedor LXC: " LXC_PASSWORD
-echo
-
-# Crear el contenedor LXC en Proxmox
-echo "Creando contenedor LXC en Proxmox con ID $LXC_ID usando la plantilla $LATEST_TEMPLATE..."
-pct create $LXC_ID local:vztmpl/$LATEST_TEMPLATE --hostname vaultwarden --memory 1024 --cores 2 --rootfs local-lvm:8 --net0 name=eth0,bridge=vmbr0,ip=dhcp,tag=100 --password $LXC_PASSWORD
-
-# Iniciar el contenedor LXC
-echo "Iniciando el contenedor LXC..."
-pct start $LXC_ID
-
-# Obtener la IP del contenedor LXC
-LXC_IP=$(pct exec $LXC_ID -- ip a | grep inet | grep eth0 | awk '{print $2}' | cut -d'/' -f1)
-
-# Mostrar IP del contenedor
-echo "La IP del contenedor LXC es: $LXC_IP"
-
-# Acceder al contenedor LXC e instalar Docker
-echo "Instalando Docker en el contenedor LXC..."
-pct exec $LXC_ID -- bash -c "apt update && apt install -y docker.io"
-
-# Instalar Docker Compose
-echo "Instalando Docker Compose en el contenedor LXC..."
-pct exec $LXC_ID -- bash -c "curl -L \"https://github.com/docker/compose/releases/download/1.29.2/docker-compose-\$(uname -s)-\$(uname -m)\" -o /usr/local/bin/docker-compose"
-pct exec $LXC_ID -- bash -c "chmod +x /usr/local/bin/docker-compose"
-
-# Preguntar por el dominio con protocolo (http:// o https://)
-read -p "Ingresa el dominio con protocolo (ej. https://bw.example.com): " DOMAIN
-if [[ ! "$DOMAIN" =~ ^https?:// ]]; then
-    echo "Error: El dominio debe incluir el protocolo (http:// o https://)."
-    exit 1
+if [[ "$INSTALL_VAULTWARDEN" == "s" ]]; then
+  read -rp "🔐 Ingresa la contraseña de administración para Vaultwarden: " VAULTWARDEN_PASSWORD
+  read -rp "🧩 Ingresa el dominio (FQDN) que quieres usar para Vaultwarden (ej: vault.mydomain.com): " VAULTWARDEN_DOMAIN
+  read -rp "🌐 Ingresa el puerto local para Vaultwarden (ej: 8080): " VAULTWARDEN_PORT
 fi
 
-# Preguntar por la ruta de datos donde se almacenarán los archivos de Vaultwarden
-read -p "Ingresa la ruta completa para almacenar los datos de Vaultwarden (ej. /path/to/vaultwarden/data): " DATA_DIR
-pct exec $LXC_ID -- mkdir -p "$DATA_DIR"
+read -rsp "🔐 Ingresa la contraseña que tendrá el usuario root del contenedor: " ROOT_PASSWORD
+echo
 
-# Preguntar por el archivo docker-compose.yml
-read -p "Ingresa la ruta del archivo docker-compose.yml (ej. ./docker-compose.yml): " DOCKER_COMPOSE_FILE
+# ========================
+# CONFIGURACIÓN DE PLANTILLA Y ALMACENAMIENTO
+# ========================
+TEMPLATE="debian-12-standard_12.7-1_amd64.tar.zst"
+TEMPLATE_STORAGE="local"
+ROOTFS_STORAGE="local-lvm"
 
-# Crear el archivo docker-compose.yml dentro del contenedor
-echo "Creando archivo docker-compose.yml dentro del contenedor LXC..."
-pct exec $LXC_ID -- bash -c "cat > $DOCKER_COMPOSE_FILE <<EOL
-version: '3'
+# Asegurar que la plantilla esté disponible
+if [[ ! -f "/var/lib/pve/local/template/cache/${TEMPLATE}" ]]; then
+  echo "⬇️ Descargando plantilla Debian 12..."
+  pveam update
+  pveam download $TEMPLATE_STORAGE $TEMPLATE
+fi
+
+# ========================
+# CREAR CONTENEDOR
+# ========================
+CTID=$(pvesh get /cluster/nextid)
+echo "📦 Creando contenedor LXC ID #$CTID..."
+
+pct create $CTID ${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE} \
+  -rootfs ${ROOTFS_STORAGE}:${var_disk} \
+  -hostname vaultwarden-stack \
+  -memory ${var_ram} \
+  -cores ${var_cpu} \
+  -net0 name=eth0,bridge=vmbr0,ip=dhcp \
+  -unprivileged ${var_unprivileged} \
+  -features nesting=1
+
+pct start $CTID
+sleep 5
+
+# ========================
+# CONFIGURAR CONTRASEÑA ROOT
+# ========================
+lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
+
+# ========================
+# INSTALAR DOCKER
+# ========================
+echo "🐳 Instalando Docker dentro del contenedor..."
+lxc-attach -n $CTID -- bash -c "
+apt-get update && apt-get install -y ca-certificates curl gnupg lsb-release
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
+apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+"
+
+# ========================
+# DESPLEGAR VAULTWARDEN
+# ========================
+if [[ "$INSTALL_VAULTWARDEN" == "s" ]]; then
+  echo "🚀 Desplegando Vaultwarden en Docker..."
+  lxc-attach -n $CTID -- bash -c "
+    mkdir -p /opt/vaultwarden && cd /opt/vaultwarden
+    cat <<EOF > docker-compose.yml
 services:
   vaultwarden:
-    image: vaultwarden/server:1.33.2
-    environment:
-      - DOMAIN=$DOMAIN
-    ports:
-      - '80:80'
-      - '443:443'
-    volumes:
-      - '$DATA_DIR:/data'
+    image: vaultwarden/server:latest
     restart: always
-EOL"
+    environment:
+      - WEBSOCKET_ENABLED=true
+      - ADMIN_TOKEN=${VAULTWARDEN_PASSWORD}
+    ports:
+      - ${VAULTWARDEN_PORT}:${VAULTWARDEN_PORT}
+    volumes:
+      - ./vw-data:/data
+EOF
+    docker compose up -d
+  "
+  msg_ok "Vaultwarden desplegado correctamente en el puerto ${VAULTWARDEN_PORT}"
+fi
 
-# Iniciar el contenedor con Docker Compose
-echo "Iniciando Vaultwarden con Docker Compose dentro del contenedor..."
-pct exec $LXC_ID -- docker-compose -f $DOCKER_COMPOSE_FILE up -d
-
-echo "Vaultwarden desplegado exitosamente en el contenedor LXC con ID $LXC_ID."
+# ========================
+# FINAL
+# ========================
+LXC_IP=$(pct exec $CTID -- ip a | grep inet | grep eth0 | awk '{print $2}' | cut -d'/' -f1)
+msg_ok "🎉 Contenedor LXC #$CTID desplegado correctamente."
+echo -e "La IP del contenedor es: ${LXC_IP}:${VAULTWARDEN_PORT}"
+echo -e "\nPuedes acceder con: \e[1mpct enter $CTID\e[0m y usar la contraseña de root que proporcionaste."
