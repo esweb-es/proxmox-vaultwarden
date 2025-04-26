@@ -6,7 +6,12 @@
 header_info() { echo -e "\n🧠 $1\n"; }
 variables() { :; }
 color() { :; }
-catch_errors() { :; }
+catch_errors() { 
+  if [ $? -ne 0 ]; then
+    echo -e "❌ Se produjo un error. Saliendo..."
+    exit 1
+  fi
+}
 msg_ok() { echo -e "✅ $1"; }
 
 # ========================
@@ -34,6 +39,12 @@ echo
 read -rp "🌐 Ingresa el dominio donde vas a acceder a Bitwarden (ej: vault.midominio.com): " DOMAIN
 read -rp "🔑 Ingresa el ADMIN_TOKEN para la administración web de Vaultwarden: " ADMIN_TOKEN
 
+# Validar que las entradas no estén vacías
+if [[ -z "$ROOT_PASSWORD" || -z "$DOMAIN" || -z "$ADMIN_TOKEN" ]]; then
+  echo "❌ Todos los campos son obligatorios. Por favor, vuelve a ejecutar el script."
+  exit 1
+fi
+
 # ========================
 # CONFIGURACIÓN DE PLANTILLA Y ALMACENAMIENTO
 # ========================
@@ -45,7 +56,9 @@ ROOTFS_STORAGE="local-lvm"
 if [[ ! -f "/var/lib/pve/local/template/cache/${TEMPLATE}" ]]; then
   echo "⬇️ Descargando plantilla Debian 12..."
   pveam update
+  catch_errors
   pveam download $TEMPLATE_STORAGE $TEMPLATE
+  catch_errors
 fi
 
 # ========================
@@ -62,6 +75,7 @@ pct create $CTID ${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE} \
   -net0 name=eth0,bridge=vmbr0,ip=dhcp \
   -unprivileged ${var_unprivileged} \
   -features nesting=1
+catch_errors
 
 pct start $CTID
 sleep 5
@@ -70,6 +84,7 @@ sleep 5
 # CONFIGURAR CONTRASEÑA ROOT
 # ========================
 lxc-attach -n $CTID -- bash -c "echo 'root:${ROOT_PASSWORD}' | chpasswd"
+catch_errors
 
 # ========================
 # INSTALAR DOCKER
@@ -82,6 +97,7 @@ curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/
 echo \"deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \$(lsb_release -cs) stable\" > /etc/apt/sources.list.d/docker.list
 apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 "
+catch_errors
 
 # ========================
 # DESPLEGAR BITWARDEN (VAULTWARDEN)
@@ -106,6 +122,7 @@ services:
 EOF
 docker compose up -d
 '
+catch_errors
 
 msg_ok "Bitwarden (Vaultwarden) desplegado correctamente"
 
