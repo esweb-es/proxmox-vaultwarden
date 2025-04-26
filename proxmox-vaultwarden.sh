@@ -27,17 +27,13 @@ color
 catch_errors
 
 # ========================
-# PREGUNTAS INTERACTIVAS
+# CONFIGURACIÓN DE PREDIFINIDOS
 # ========================
-read -rp "❓ ¿Quieres instalar Vaultwarden en Docker? [s/n]: " INSTALL_VAULTWARDEN
-INSTALL_VAULTWARDEN=${INSTALL_VAULTWARDEN,,}
+VAULTWARDEN_PASSWORD="your-admin-password"  # Reemplaza con tu contraseña de administración
+VAULTWARDEN_PORT="8000"  # Puerto predeterminado
+VAULTWARDEN_DOMAIN="vault.mydomain.com"  # Reemplaza con tu dominio
 
-if [[ "$INSTALL_VAULTWARDEN" == "s" ]]; then
-  read -rp "🔐 Ingresa la contraseña de administración para Vaultwarden: " VAULTWARDEN_PASSWORD
-  read -rp "🧩 Ingresa el dominio (FQDN) que quieres usar para Vaultwarden (ej: vault.mydomain.com): " VAULTWARDEN_DOMAIN
-  read -rp "🌐 Ingresa el puerto local para Vaultwarden (ej: 8080): " VAULTWARDEN_PORT
-fi
-
+# Contraseña de root para el contenedor
 read -rsp "🔐 Ingresa la contraseña que tendrá el usuario root del contenedor: " ROOT_PASSWORD
 echo
 
@@ -93,11 +89,10 @@ apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docke
 # ========================
 # DESPLEGAR VAULTWARDEN
 # ========================
-if [[ "$INSTALL_VAULTWARDEN" == "s" ]]; then
-  echo "🚀 Desplegando Vaultwarden en Docker..."
-  lxc-attach -n $CTID -- bash -c "
-    mkdir -p /opt/vaultwarden && cd /opt/vaultwarden
-    cat <<EOF > docker-compose.yml
+echo "🚀 Desplegando Vaultwarden en Docker..."
+lxc-attach -n $CTID -- bash -c "
+  mkdir -p /opt/vaultwarden && cd /opt/vaultwarden
+  cat <<EOF > docker-compose.yml
 services:
   vaultwarden:
     image: vaultwarden/server:latest
@@ -110,10 +105,10 @@ services:
     volumes:
       - ./vw-data:/data
 EOF
-    docker compose up -d
-  "
-  msg_ok "Vaultwarden desplegado correctamente en el puerto ${VAULTWARDEN_PORT}"
-fi
+  docker compose up -d
+"
+
+msg_ok "Vaultwarden desplegado correctamente en el puerto ${VAULTWARDEN_PORT}"
 
 # ========================
 # FINAL
